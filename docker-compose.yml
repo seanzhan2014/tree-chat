@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  tree-chat:
+    build: .
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DB_PATH=/app/data/treechat.db
+    restart: unless-stopped
