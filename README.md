@@ -2,8 +2,6 @@
 
 A self-hosted AI chat application with **tree-structured conversation history** — enabling branching conversations, deep context control, and multi-provider support. Deployable locally or on any cloud server via Docker.
 
-![Tree Chat Screenshot](https://raw.githubusercontent.com/seanzhan2014/tree-chat/main/docs/screenshot.png)
-
 ## Why Tree Chat?
 
 Traditional chat tools force you into a single linear thread. Tree Chat stores every exchange as a node in a tree, so you can:
@@ -22,18 +20,26 @@ Traditional chat tools force you into a single linear thread. Tree Chat stores e
 - Click any node to resume from that exact point
 - Delete a node to remove it and all its descendants (with confirmation)
 - Auto-generated node names (≤3 English words / ≤5 Chinese characters) appear as breadcrumbs in the header
+- Inline topic rename — double-click any topic title to edit it
+- Branch indicator — an amber banner appears when you are viewing a sub-branch rather than the main thread
+
+### Topics & Sessions
+- **Auto-create topic** — if no topic is selected when you send your first message, a topic is created automatically from the first 6 words
+- **Auto-rename topic** — after the first AI response, the topic is renamed to match the generated node name
+- **Session restore** — the last selected topic is remembered and restored on page reload
 
 ### Context Management
 - Context sent to the AI = only the path from root → current node
 - Configurable context limit per provider (tokens)
 - Auto-summarizes oldest nodes when the context window is nearly full
-- Visual context usage bar in the header (turns amber at 80%)
+- Visual context usage bar in the header (turns amber at ≥80%)
+- Context depth warning in the message list at ≥20 exchanges
 
 ### Multi-Provider Support
 | Provider | Notes |
 |---|---|
 | OpenAI | GPT-4o, o1, o3, custom models |
-| Anthropic | Claude 3.5/4.x series |
+| Anthropic | Claude 3.5 / 4.x series |
 | 通义千问 (Qianwen) | DashScope compatible mode |
 | Custom | Any OpenAI-compatible API (e.g. Fireworks AI, Together AI, local Ollama) |
 
@@ -42,25 +48,31 @@ Traditional chat tools force you into a single linear thread. Tree Chat stores e
 
 ### UI & Usability
 - **Resizable sidebar** — drag the divider to adjust width (180–480px), persisted across sessions
-- **Collapsible sidebar** — toggle with the panel button or `Ctrl+B`
-- **Draggable dialogs** — Settings and confirmation dialogs can be moved anywhere on screen
+- **Collapsible sidebar** — toggle with the `⊡` button in the sidebar header or `Ctrl+B`
+- **Draggable dialogs** — Settings and confirmation dialogs can be dragged anywhere on screen
+- **Topic search** — a search bar appears in the sidebar when you have more than 3 topics
+- **Character counter** — shown in the input toolbar above 500 characters; the input border turns amber above 4,000
+- **Stop generation** — a Stop button replaces Send while the AI is responding; also callable via the abort API
 - **Keyboard shortcuts**:
-  - `Enter` — send message
-  - `Shift+Enter` — newline
-  - `Ctrl+Shift+N` — new chat
-  - `Ctrl+,` — open Settings
-  - `Ctrl+B` — toggle sidebar
-  - `Escape` — close dialog
+  | Shortcut | Action |
+  |---|---|
+  | `Enter` | Send message |
+  | `Shift+Enter` | New line |
+  | `Ctrl+Shift+N` | New chat |
+  | `Ctrl+,` | Open Settings |
+  | `Ctrl+B` | Toggle sidebar |
+  | `Escape` | Close dialog |
 - Suggested prompts on the welcome screen
-- Message copy, edit, and regenerate buttons
-- Date separators and scroll-to-bottom button
+- Message copy, inline edit, and regenerate buttons
+- Date separators (Today / Yesterday / date) between messages
+- Scroll-to-bottom floating button
 - Light / Dark / System theme
 - Mobile-responsive with a slide-in drawer sidebar
 
 ### Data
-- SQLite database, stored locally at `server/data/treechat.db`
-- Export all data to JSON
-- Import from a previously exported JSON file (replaces all data)
+- SQLite database, stored at `server/data/treechat.db`
+- Export all chats and settings to a JSON file
+- Import from a previously exported JSON file (replaces all existing data)
 
 ---
 
@@ -88,13 +100,13 @@ This starts:
 - **Backend** at `http://localhost:3001`
 - **Frontend** at `http://localhost:5173` (Vite dev server with HMR)
 
-Open `http://localhost:5173` in your browser, then go to **Settings → Providers** and add an API key.
+Open `http://localhost:5173`, then go to **Settings → Providers** and add an API key.
 
 ### Production Build
 
 ```bash
 npm run build   # builds client into client/dist/
-npm start       # serves both API and static files from port 3001
+npm start       # serves API + static files on port 3001
 ```
 
 Open `http://localhost:3001`.
@@ -111,9 +123,7 @@ cd tree-chat
 docker-compose up -d
 ```
 
-The app will be available at `http://localhost:3001`.
-
-Data is persisted in a `./data` volume on the host.
+The app will be available at `http://localhost:3001`. Data is persisted in a `./data` volume on the host.
 
 ### Manual Docker
 
@@ -130,7 +140,7 @@ docker run -d \
 
 1. SSH into your server and install Docker + Docker Compose
 2. Clone the repo and run `docker-compose up -d`
-3. Configure your security group / firewall to allow port 3001 (or put it behind Nginx)
+3. Open port 3001 in your firewall / security group (or put it behind Nginx)
 
 Optional Nginx reverse proxy:
 
@@ -204,7 +214,7 @@ Each node stores its ancestor path as a string (e.g. `/1/4/9/`), enabling:
 
 ### Node Name Generation
 
-The LLM response starts with a `<node_name>label</node_name>` tag. The server parses this mid-stream and emits it as a separate SSE event, so the node name appears in the sidebar before the full response finishes.
+The LLM response starts with a `<node_name>label</node_name>` tag. The server parses this mid-stream and emits it as a separate SSE event, so the node name appears in the sidebar before the full response finishes. If the tag is not found within the first 150 characters of the response, a fallback name is generated from the first few words of the user message.
 
 ### Streaming Architecture
 
@@ -218,9 +228,9 @@ Client  →  Updates UI optimistically on each event
 
 ### LLM Adapters
 
-- `OpenAIAdapter` — handles OpenAI, Fireworks AI, Together AI, Ollama, and any OpenAI-compatible endpoint (smart URL construction to avoid double `/v1`)
-- `AnthropicAdapter` — handles the separate `system` field required by Anthropic's API
-- `QianwenAdapter` — extends `OpenAIAdapter` with DashScope's base URL
+- `OpenAIAdapter` — handles OpenAI, Fireworks AI, Together AI, Ollama, and any OpenAI-compatible endpoint. Includes smart URL construction to prevent double `/v1` when the base URL already contains it.
+- `AnthropicAdapter` — handles the separate `system` field required by Anthropic's API, and parses `content_block_delta` SSE events.
+- `QianwenAdapter` — extends `OpenAIAdapter` with DashScope's base URL.
 
 ---
 
@@ -230,11 +240,13 @@ Client  →  Updates UI optimistically on each event
 |---|---|
 | API Key | Provider API key (stored in local SQLite, never sent to third parties) |
 | Base URL | Override the API endpoint (useful for proxies or local models) |
-| Model | Model ID, or use "Fetch" to list all available models |
-| Context limit | Max tokens to send to the AI (older nodes are summarized if exceeded) |
+| Model | Model ID, or click "Fetch" to list all models available on the endpoint |
+| Context limit | Max tokens to send per request (older nodes are summarized if exceeded) |
 | Max output tokens | Maximum tokens the AI may generate per response |
 | System Prompt | Optional instructions prepended to every conversation |
-| Node name language | Auto / English / Chinese — controls the language of generated node names |
+| Node name language | Auto / English / Chinese — language used for generated node names |
+| Max English words | Max word count for English node names (default: 3) |
+| Max Chinese chars | Max character count for Chinese node names (default: 5) |
 | Theme | Light / Dark / System |
 
 ---
