@@ -14,6 +14,8 @@ export interface Node {
   node_name: string | null;
   user_content: string;
   assistant_content: string | null;
+  reasoning_content: string | null;
+  thinking_seconds: number | null;
   model: string | null;
   tokens_used: number | null;
   summary: string | null;
@@ -97,6 +99,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 export type SSEEvent =
   | { type: 'node_created'; node_id: number }
   | { type: 'node_name'; name: string }
+  | { type: 'reasoning_token'; content: string }
   | { type: 'token'; content: string }
-  | { type: 'done'; tokens: number }
+  | { type: 'done'; tokens: number; thinking_seconds: number }
   | { type: 'error'; message: string };

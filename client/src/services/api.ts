@@ -91,10 +91,13 @@ export function chatStream(
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
+          let event: SSEEvent;
           try {
-            const event = JSON.parse(line.slice(6)) as SSEEvent;
-            onEvent(event);
-          } catch (_) {}
+            event = JSON.parse(line.slice(6)) as SSEEvent;
+          } catch (_) {
+            continue; // skip malformed JSON
+          }
+          onEvent(event); // let errors propagate to outer catch
         }
       }
 

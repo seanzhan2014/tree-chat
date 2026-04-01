@@ -47,6 +47,11 @@ class SQLiteAdapter {
       CREATE INDEX IF NOT EXISTS idx_nodes_path   ON nodes(path);
       CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id);
     `);
+
+    // Additive migrations — safe to run on existing DBs
+    const addIfMissing = (sql) => { try { this.db.exec(sql); } catch (_) {} };
+    addIfMissing('ALTER TABLE nodes ADD COLUMN reasoning_content TEXT');
+    addIfMissing('ALTER TABLE nodes ADD COLUMN thinking_seconds  INTEGER');
   }
 
   // ── Topics ──────────────────────────────────────────────────────────────
@@ -136,6 +141,8 @@ class SQLiteAdapter {
     const vals = [];
     if (patch.node_name         !== undefined) { sets.push('node_name = ?');         vals.push(patch.node_name); }
     if (patch.assistant_content !== undefined) { sets.push('assistant_content = ?'); vals.push(patch.assistant_content); }
+    if (patch.reasoning_content !== undefined) { sets.push('reasoning_content = ?'); vals.push(patch.reasoning_content); }
+    if (patch.thinking_seconds  !== undefined) { sets.push('thinking_seconds = ?');  vals.push(patch.thinking_seconds); }
     if (patch.model             !== undefined) { sets.push('model = ?');             vals.push(patch.model); }
     if (patch.tokens_used       !== undefined) { sets.push('tokens_used = ?');       vals.push(patch.tokens_used); }
     if (patch.summary           !== undefined) { sets.push('summary = ?');           vals.push(patch.summary); }

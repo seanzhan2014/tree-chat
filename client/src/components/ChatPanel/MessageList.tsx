@@ -45,7 +45,7 @@ function groupByDate(nodes: Node[]): Array<{ date: string | null; node: Node }> 
 }
 
 export default function MessageList() {
-  const { currentPath, isStreaming, streamingContent, streamingNodeId, sendMessage, selectedTopicId } = useAppStore();
+  const { currentPath, isStreaming, streamingContent, streamingReasoning, streamingNodeId, sendMessage, selectedTopicId } = useAppStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -57,7 +57,7 @@ export default function MessageList() {
 
   useEffect(() => {
     if (atBottomRef.current) scrollToBottom();
-  }, [currentPath.length, streamingContent]);
+  }, [currentPath.length, streamingContent, streamingReasoning]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -132,6 +132,7 @@ export default function MessageList() {
                 node={node}
                 isStreaming={isStreamingThis}
                 streamingContent={isStreamingThis ? streamingContent : undefined}
+                streamingReasoning={isStreamingThis ? streamingReasoning : undefined}
                 isLast={isLast}
               />
             </div>

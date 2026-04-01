@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import { Copy, Check, RotateCcw, User, Bot, Pencil, X, Send } from 'lucide-react';
+import { Copy, Check, RotateCcw, User, Bot, Pencil, X, Send, ChevronRight } from 'lucide-react';
 import 'highlight.js/styles/github-dark.css';
 import type { Node } from '../../types';
 import { useAppStore } from '../../store/appStore';
@@ -12,6 +12,7 @@ interface Props {
   node: Node;
   isStreaming?: boolean;
   streamingContent?: string;
+  streamingReasoning?: string;
   isLast?: boolean;
 }
 
@@ -66,12 +67,112 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
+// ── Thinking / Reasoning section ──────────────────────────────────────────────
+
+function SpinnerIcon() {
+  return (
+    <svg className="animate-spin flex-shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round"
+        strokeDasharray="31.4" strokeDashoffset="10" />
+    </svg>
+  );
+}
+
+interface ThinkingSectionProps {
+  content: string;
+  isStreaming: boolean;
+  thinkingSeconds?: number | null;
+  elapsedSeconds: number;
+}
+
+function ThinkingSection({ content, isStreaming, thinkingSeconds, elapsedSeconds }: ThinkingSectionProps) {
+  const [expanded, setExpanded] = useState(true);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Auto-collapse shortly after streaming ends
+  useEffect(() => {
+    if (!isStreaming) {
+      const id = setTimeout(() => setExpanded(false), 700);
+      return () => clearTimeout(id);
+    } else {
+      setExpanded(true);
+    }
+  }, [isStreaming]);
+
+  // Auto-scroll to bottom while streaming
+  useEffect(() => {
+    if (isStreaming && expanded && contentRef.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
+    }
+  }, [content, isStreaming, expanded]);
+
+  const displaySeconds = isStreaming ? elapsedSeconds : (thinkingSeconds ?? 0);
+  const label = isStreaming
+    ? `Thinking${elapsedSeconds > 0 ? `… ${elapsedSeconds}s` : '…'}`
+    : `Thought for ${displaySeconds}s`;
+
+  return (
+    <div className="mb-3 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden text-sm">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors text-left select-none"
+      >
+        <span className={`flex-shrink-0 transition-transform duration-200 ${!isStreaming && expanded ? 'rotate-90' : ''}`}>
+          {isStreaming ? <SpinnerIcon /> : <ChevronRight size={13} />}
+        </span>
+        <span className="font-medium">{label}</span>
+      </button>
+
+      {expanded && (
+        <div
+          ref={contentRef}
+          className="border-t border-gray-200 dark:border-gray-700 px-4 py-3 max-h-56 overflow-y-auto bg-gray-50/60 dark:bg-gray-800/30"
+        >
+          {content ? (
+            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed whitespace-pre-wrap font-mono">
+              {content}
+            </p>
+          ) : (
+            <span className="inline-flex gap-1">
+              {[0, 150, 300].map(d => (
+                <span key={d} className="w-1 h-1 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+              ))}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Hook: count seconds since first activation
+function useElapsedSeconds(active: boolean): number {
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (active) {
+      if (startRef.current === null) startRef.current = Date.now();
+      const id = setInterval(() => {
+        setElapsed(Math.floor((Date.now() - startRef.current!) / 1000));
+      }, 1000);
+      return () => clearInterval(id);
+    } else {
+      startRef.current = null;
+      setElapsed(0);
+    }
+  }, [active]);
+
+  return elapsed;
+}
+
+// ── User message ──────────────────────────────────────────────────────────────
+
 function formatTime(iso: string) {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// Editable user message — on submit creates a new branch from parent
 function UserMessage({ node, isLast }: { node: Node; isLast: boolean }) {
   const { selectedTopicId, currentPath, isStreaming: globalStreaming } = useAppStore();
   const [editing, setEditing] = useState(false);
@@ -92,21 +193,15 @@ function UserMessage({ node, isLast }: { node: Node; isLast: boolean }) {
   const submitEdit = async () => {
     const content = editText.trim();
     if (!content || content === node.user_content) { cancelEdit(); return; }
-
     setEditing(false);
-    // Delete this node (and its subtree), then send edited message from parent
     const parentId = node.parent_id;
     await api.deleteNode(node.id);
-
-    // Rebuild path without this node and beyond
     const newPath = currentPath.filter(n => n.id !== node.id);
     useAppStore.setState({ currentPath: newPath, selectedNodeId: parentId });
-
     if (selectedTopicId && useAppStore.getState().expandedTopicIds.has(selectedTopicId)) {
       const nodes = await api.getTopicTree(selectedTopicId);
       useAppStore.setState(s => ({ nodesByTopic: { ...s.nodesByTopic, [selectedTopicId]: nodes } }));
     }
-
     await useAppStore.getState().sendMessage(content);
   };
 
@@ -155,7 +250,6 @@ function UserMessage({ node, isLast }: { node: Node; isLast: boolean }) {
           <div className="bg-blue-500 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap">
             {node.user_content}
           </div>
-          {/* Edit button on hover */}
           {!globalStreaming && (showActions || isLast) && (
             <button
               className="absolute -left-8 top-1/2 -translate-y-1/2 p-1.5 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 shadow-sm transition-all opacity-0 group-hover:opacity-100"
@@ -177,17 +271,26 @@ function UserMessage({ node, isLast }: { node: Node; isLast: boolean }) {
   );
 }
 
-export default function MessageBubble({ node, isStreaming, streamingContent, isLast }: Props) {
+// ── Main export ───────────────────────────────────────────────────────────────
+
+export default function MessageBubble({ node, isStreaming, streamingContent, streamingReasoning, isLast }: Props) {
   const { regenerateMessage, isStreaming: globalStreaming } = useAppStore();
-  const assistantContent = isStreaming ? (streamingContent || '') : (node.assistant_content || '');
+
+  const assistantContent = isStreaming ? (streamingContent ?? '') : (node.assistant_content ?? '');
+  const reasoningContent = isStreaming ? (streamingReasoning ?? '') : (node.reasoning_content ?? '');
+  const hasReasoning = reasoningContent.length > 0;
   const [showActions, setShowActions] = useState(false);
+
+  // Elapsed timer: active only while reasoning is streaming and no answer yet
+  const isReasoningPhase = !!isStreaming && hasReasoning && !assistantContent;
+  const elapsedSeconds = useElapsedSeconds(isReasoningPhase);
 
   return (
     <div className="space-y-4">
       <UserMessage node={node} isLast={!!isLast} />
 
-      {/* Assistant message */}
-      {(assistantContent || isStreaming) && (
+      {/* Assistant response area */}
+      {(assistantContent || isStreaming || hasReasoning) && (
         <div
           className="flex gap-3 group"
           onMouseEnter={() => setShowActions(true)}
@@ -196,24 +299,36 @@ export default function MessageBubble({ node, isStreaming, streamingContent, isL
           <div className="flex-shrink-0 w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center mt-0.5">
             <Bot size={14} className="text-emerald-600 dark:text-emerald-400" />
           </div>
+
           <div className="flex-1 min-w-0">
+            {/* Thinking section — shown when model has reasoning content */}
+            {hasReasoning && (
+              <ThinkingSection
+                content={reasoningContent}
+                isStreaming={!!isStreaming}
+                thinkingSeconds={node.thinking_seconds}
+                elapsedSeconds={elapsedSeconds}
+              />
+            )}
+
+            {/* Response bubble */}
             <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed">
               {assistantContent ? (
                 <MarkdownContent content={assistantContent} />
-              ) : (
+              ) : isStreaming ? (
                 <span className="inline-flex gap-1 items-center">
                   {[0, 150, 300].map(d => (
                     <span key={d} className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: `${d}ms` }} />
                   ))}
                 </span>
-              )}
+              ) : null}
             </div>
 
-            {/* Meta + actions */}
+            {/* Meta bar */}
             <div className="mt-1.5 flex items-center gap-1 flex-wrap">
               <span className="text-[11px] text-gray-400 px-1">
                 {node.model && <span>{node.model}</span>}
-                {node.tokens_used && <span> · ~{node.tokens_used} tokens</span>}
+                {node.tokens_used != null && <span> · ~{node.tokens_used} tokens</span>}
                 {!isStreaming && <span> · {formatTime(node.created_at)}</span>}
               </span>
               {node.node_name && (
@@ -223,7 +338,7 @@ export default function MessageBubble({ node, isStreaming, streamingContent, isL
               )}
               {!isStreaming && (
                 <div className={`flex items-center gap-0.5 ml-1 transition-opacity ${showActions || isLast ? 'opacity-100' : 'opacity-0'}`}>
-                  <CopyBtn text={assistantContent} />
+                  {assistantContent && <CopyBtn text={assistantContent} />}
                   {isLast && !globalStreaming && (
                     <button
                       className="p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"

@@ -2,12 +2,12 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { SQLiteAdapter } = require('./db/SQLiteAdapter');
+const { getDbPath, setDbPath, DEFAULT_DB_PATH } = require('./config');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'treechat.db');
 
-const db = new SQLiteAdapter(DB_PATH);
+const db = new SQLiteAdapter(getDbPath());
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -17,6 +17,24 @@ app.use('/api/nodes', require('./routes/nodes')(db));
 app.use('/api/chat', require('./routes/chat')(db));
 app.use('/api/settings', require('./routes/settings')(db));
 app.use('/api/providers', require('./routes/providers')(db));
+
+// ── DB path config ───────────────────────────────────────────────────────────
+app.get('/api/config', (_req, res) => {
+  res.json({ dbPath: getDbPath(), defaultDbPath: DEFAULT_DB_PATH });
+});
+
+app.post('/api/config/db-path', (req, res) => {
+  const { dbPath } = req.body;
+  if (!dbPath || typeof dbPath !== 'string') {
+    return res.status(400).json({ error: 'dbPath is required' });
+  }
+  try {
+    setDbPath(dbPath.trim());
+    res.json({ ok: true, dbPath: dbPath.trim(), restartRequired: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // Export/Import for migration
 app.get('/api/export', (req, res) => {

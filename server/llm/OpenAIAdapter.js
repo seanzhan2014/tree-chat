@@ -65,8 +65,9 @@ class OpenAIAdapter extends BaseAdapter {
         if (data === '[DONE]') return;
         try {
           const parsed = JSON.parse(data);
-          const content = parsed.choices?.[0]?.delta?.content;
-          if (content) yield content;
+          const delta = parsed.choices?.[0]?.delta;
+          if (delta?.reasoning_content) yield { type: 'reasoning', content: delta.reasoning_content };
+          if (delta?.content)           yield { type: 'content',   content: delta.content };
         } catch (_) {}
       }
     }

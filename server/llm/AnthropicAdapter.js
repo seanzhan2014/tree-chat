@@ -63,7 +63,7 @@ class AnthropicAdapter extends BaseAdapter {
         try {
           const parsed = JSON.parse(line.slice(6));
           if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-            yield parsed.delta.text;
+            yield { type: 'content', content: parsed.delta.text };
           }
         } catch (_) {}
       }

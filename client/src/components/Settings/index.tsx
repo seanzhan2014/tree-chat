@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Plus, Trash2, Download, Upload } from 'lucide-react';
+import { X, Plus, Trash2, Download, Upload, Save, Loader } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
 import type { AppSettings, ProviderConfig } from '../../types';
 import { DEFAULT_PROVIDERS } from '../../types';
@@ -17,11 +17,23 @@ export default function SettingsDialog() {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
 
+  // DB path state
+  const [dbPath, setDbPath] = useState('');
+  const [defaultDbPath, setDefaultDbPath] = useState('');
+  const [dbPathSaving, setDbPathSaving] = useState(false);
+  const [dbPathMsg, setDbPathMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   useEffect(() => {
     if (settingsOpen) {
       setDraft(settings);
       setSelectedProviderId(settings.activeProviderId);
       setPos(null);
+      setDbPathMsg(null);
+      // Load current DB path from server
+      fetch('/api/config').then(r => r.json()).then(d => {
+        setDbPath(d.dbPath || '');
+        setDefaultDbPath(d.defaultDbPath || '');
+      }).catch(() => {});
     }
   }, [settingsOpen]);
 
@@ -102,6 +114,29 @@ export default function SettingsDialog() {
       setSettingsOpen(false);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveDbPath = async () => {
+    if (!dbPath.trim()) return;
+    setDbPathSaving(true);
+    setDbPathMsg(null);
+    try {
+      const r = await fetch('/api/config/db-path', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dbPath: dbPath.trim() }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setDbPathMsg({ ok: true, text: 'Saved. Restart the server for the new database to take effect.' });
+      } else {
+        setDbPathMsg({ ok: false, text: d.error || 'Failed to save' });
+      }
+    } catch (e) {
+      setDbPathMsg({ ok: false, text: String(e) });
+    } finally {
+      setDbPathSaving(false);
     }
   };
 
@@ -332,7 +367,7 @@ export default function SettingsDialog() {
 
           {/* ── Data tab ── */}
           {tab === 'data' && (
-            <div className="space-y-4 max-w-md">
+            <div className="space-y-5 max-w-md">
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 Export all your chats and settings as a JSON file, or import a previously exported file.
                 Importing will <strong>replace</strong> all existing data.
@@ -353,10 +388,45 @@ export default function SettingsDialog() {
                 </button>
               </div>
 
-              <div className="text-xs text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-                <p className="font-medium mb-1">Database</p>
-                <p>SQLite · Local file storage</p>
-                <p className="mt-1 text-gray-300 dark:text-gray-500">Future: PostgreSQL, MySQL support via adapter</p>
+              {/* Database path */}
+              <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-medium">Database Path</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Location of the SQLite database file. Change takes effect after server restart.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="flex-1 text-xs font-mono px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 outline-none focus:border-blue-400"
+                    value={dbPath}
+                    onChange={e => { setDbPath(e.target.value); setDbPathMsg(null); }}
+                    placeholder={defaultDbPath || 'Enter full path to .db file…'}
+                  />
+                  <button
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-blue-500 hover:bg-blue-600 text-white transition-colors disabled:opacity-50"
+                    onClick={handleSaveDbPath}
+                    disabled={dbPathSaving || !dbPath.trim()}
+                  >
+                    {dbPathSaving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
+                  </button>
+                </div>
+                {defaultDbPath && (
+                  <p className="text-xs text-gray-400">
+                    Default: <span className="font-mono">{defaultDbPath}</span>
+                    {dbPath !== defaultDbPath && (
+                      <button className="ml-2 underline text-blue-500" onClick={() => { setDbPath(defaultDbPath); setDbPathMsg(null); }}>
+                        Reset
+                      </button>
+                    )}
+                  </p>
+                )}
+                {dbPathMsg && (
+                  <p className={`text-xs ${dbPathMsg.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
+                    {dbPathMsg.text}
+                  </p>
+                )}
               </div>
             </div>
           )}

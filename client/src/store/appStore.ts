@@ -24,6 +24,7 @@ interface AppState {
   currentPath: Node[];
   isStreaming: boolean;
   streamingContent: string;
+  streamingReasoning: string;
   streamingNodeId: number | null;
   streamingNodeName: string | null;
   abortController: AbortController | null;
@@ -59,6 +60,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentPath: [],
   isStreaming: false,
   streamingContent: '',
+  streamingReasoning: '',
   streamingNodeId: null,
   streamingNodeName: null,
   abortController: null,
@@ -191,11 +193,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     const abortController = new AbortController();
-    set({ isStreaming: true, streamingContent: '', streamingNodeId: null, streamingNodeName: null, abortController });
+    set({ isStreaming: true, streamingContent: '', streamingReasoning: '', streamingNodeId: null, streamingNodeName: null, abortController });
 
     let streamingNodeId: number | null = null;
     let streamingName: string | null = null;
     let accContent = '';
+    let accReasoning = '';
 
     try {
       await api.chatStream(
@@ -207,6 +210,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             const userNode: Node = {
               id: event.node_id, topic_id: selectedTopicId!, parent_id: selectedNodeId,
               path: '', node_name: null, user_content: userContent, assistant_content: null,
+              reasoning_content: null, thinking_seconds: null,
               model: provider.model, tokens_used: null, summary: null, created_at: new Date().toISOString(),
             };
             set(s => ({ currentPath: [...s.currentPath, userNode] }));
@@ -214,6 +218,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             streamingName = event.name;
             set({ streamingNodeName: event.name });
             set(s => ({ currentPath: s.currentPath.map(n => n.id === streamingNodeId ? { ...n, node_name: event.name } : n) }));
+          } else if (event.type === 'reasoning_token') {
+            accReasoning += event.content;
+            set({ streamingReasoning: accReasoning });
           } else if (event.type === 'token') {
             accContent += event.content;
             set({ streamingContent: accContent });
@@ -221,7 +228,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             set(s => ({
               currentPath: s.currentPath.map(n =>
                 n.id === streamingNodeId
-                  ? { ...n, assistant_content: accContent, node_name: streamingName, tokens_used: event.tokens }
+                  ? { ...n, assistant_content: accContent, reasoning_content: accReasoning || null,
+                      thinking_seconds: event.thinking_seconds || null,
+                      node_name: streamingName, tokens_used: event.tokens }
                   : n
               ),
             }));
@@ -257,7 +266,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error('sendMessage error:', err);
       throw err;
     } finally {
-      set({ isStreaming: false, streamingContent: '', streamingNodeId: null, streamingNodeName: null, abortController: null });
+      set({ isStreaming: false, streamingContent: '', streamingReasoning: '', streamingNodeId: null, streamingNodeName: null, abortController: null });
     }
   },
 

@@ -24,6 +24,10 @@ function sse(res, data) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+// Extract content string from chunk (supports both legacy string and {type,content} object)
+function chunkType(chunk) { return typeof chunk === 'object' ? chunk.type : 'content'; }
+function chunkContent(chunk) { return typeof chunk === 'object' ? chunk.content : chunk; }
+
 const NODE_NAME_INSTRUCTION = `
 IMPORTANT: The very first thing you output must be a short label for this exchange, in the format:
 <node_name>label</node_name>
@@ -49,7 +53,7 @@ module.exports = (db) => {
     res.flushHeaders();
 
     let aborted = false;
-    req.on('close', () => { aborted = true; });
+    res.on('close', () => { aborted = true; });
 
     try {
       // ── 1. Build context ──────────────────────────────────────────────
@@ -83,7 +87,7 @@ module.exports = (db) => {
             ],
             { maxTokens: 600 }
           )) {
-            summaryContent += tok;
+            summaryContent += chunkContent(tok);
             if (aborted) break;
           }
 
@@ -132,16 +136,36 @@ module.exports = (db) => {
       // ── 5. Stream LLM response ────────────────────────────────────────
       const adapter = createAdapter(provider_config);
       let fullContent = '';
+      let fullReasoning = '';
       let nameBuf = '';
       let nameDone = false;
       let extractedName = null;
+      let reasoningStart = null;
+      let thinkingSeconds = 0;
 
       const gen = adapter.chatStream(messages, {
         maxTokens: provider_config.maxTokens || 4096,
       });
 
-      for await (const token of gen) {
+      for await (const chunk of gen) {
         if (aborted) break;
+
+        const type = chunkType(chunk);
+        const token = chunkContent(chunk);
+
+        // ── Reasoning tokens ──────────────────────────────────────────
+        if (type === 'reasoning') {
+          if (reasoningStart === null) reasoningStart = Date.now();
+          fullReasoning += token;
+          sse(res, { type: 'reasoning_token', content: token });
+          continue;
+        }
+
+        // ── Content tokens ────────────────────────────────────────────
+        // First content token marks end of reasoning phase
+        if (reasoningStart !== null && thinkingSeconds === 0) {
+          thinkingSeconds = Math.round((Date.now() - reasoningStart) / 1000);
+        }
 
         if (!nameDone) {
           nameBuf += token;
@@ -199,14 +223,16 @@ module.exports = (db) => {
 
       db.updateNode(node.id, {
         assistant_content: fullContent,
+        reasoning_content: fullReasoning || null,
         node_name: extractedName,
         model: provider_config.model,
         tokens_used: tokensUsed,
+        thinking_seconds: thinkingSeconds || null,
       });
 
       db.updateTopic(topic_id, { last_node_id: node.id });
 
-      sse(res, { type: 'done', tokens: tokensUsed });
+      sse(res, { type: 'done', tokens: tokensUsed, thinking_seconds: thinkingSeconds });
       res.end();
 
     } catch (err) {
